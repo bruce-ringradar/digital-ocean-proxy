@@ -1,19 +1,14 @@
 from flask import Flask, request, jsonify, Response
 import requests
 import json
-import os
+import logging
 
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 
-BACKEND_BASE_URL = os.environ.get("BACKEND_BASE_URL", "https://inference.do-ai.run/v1")
-ORIGINAL_MODEL_ID = os.environ.get("ORIGINAL_MODEL_ID", "anthropic-claude-opus-4.5")
-DEFAULT_REWROTE_MODEL_ID = os.environ.get("REWROTE_MODEL_ID", "do-opus-4.5")
-
-# Model ID mapping: alias -> actual model ID
-MODEL_ALIASES = {
-    "do-opus-4.5": "anthropic-claude-opus-4.5",
-    "do-opus": "anthropic-claude-opus-4.5",
-}
+BACKEND_BASE_URL = "https://inference.do-ai.run/v1"
+ORIGINAL_MODEL_ID = "anthropic-claude-opus-4.5"
+REWROTE_MODEL_ID = "do-opus-4.5"
 
 def transform_tool_use_to_text(content):
     """Transform tool_use content to text format."""
