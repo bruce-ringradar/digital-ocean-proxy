@@ -4,7 +4,6 @@ import json
 import logging
 
 app = Flask(__name__)
-
 logger = logging.getLogger(__name__)
 
 BACKEND_BASE_URL = "https://inference.do-ai.run/v1"
@@ -154,10 +153,9 @@ def proxy(path):
             if clean_path == 'chat/completions':
                 if data and data.get('model'):
                     incoming_model = str(data.get('model')).lower().replace(' ', '-').replace('--', '-')
-                    for alias, actual_model in MODEL_ALIASES.items():
-                        if incoming_model == alias.lower().replace(' ', '-').replace('--', '-'):
-                            data['model'] = actual_model
-                            break
+                    normalized_rewrite = REWROTE_MODEL_ID.lower().replace(' ', '-').replace('--', '-')
+                    if incoming_model == normalized_rewrite:
+                        data['model'] = ORIGINAL_MODEL_ID
                 
                 if data and 'messages' in data:
                     data['messages'] = transform_messages(data['messages'])
