@@ -1,6 +1,0 @@
-name: sample-flask
-services:
-- name: web
-  github:
-    repo: digitalocean/sample-flask
-    branch: main
