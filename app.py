@@ -1,17 +1,15 @@
 from flask import Flask, request, jsonify, Response
 import requests
 import json
-import logging
 
 app = Flask(__name__)
-logger = logging.getLogger(__name__)
 
 BACKEND_BASE_URL = "https://inference.do-ai.run/v1"
 ORIGINAL_MODEL_ID = "anthropic-claude-opus-4.5"
 REWROTE_MODEL_ID = "do-opus-4.5"
 
 def transform_tool_use_to_text(content):
-    """Transform tool_use content to text format."""
+    """Transform tool_use content to natural text format."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -19,17 +17,16 @@ def transform_tool_use_to_text(content):
         for item in content:
             if isinstance(item, dict):
                 if item.get('type') == 'tool_use':
-                    tool_name = item.get('name', 'unknown_tool')
-                    tool_id = item.get('id', '')
-                    tool_input = json.dumps(item.get('input', {}), indent=2)
-                    text_parts.append(f"[Tool Use: {tool_name} (id: {tool_id})\nInput: {tool_input}]")
+                    # Skip tool_use items - they're not needed in text format
+                    # The tool results will be in subsequent messages
+                    continue
                 elif item.get('type') == 'text':
                     text_parts.append(item.get('text', ''))
                 else:
                     text_parts.append(json.dumps(item))
             else:
                 text_parts.append(str(item))
-        return '\n\n'.join(text_parts)
+        return ' '.join(text_parts) if text_parts else ''
     return str(content)
 
 def transform_messages(messages):
@@ -42,39 +39,6 @@ def transform_messages(messages):
         transformed.append(new_msg)
     return transformed
 
-def transform_message_to_openai(messages):
-    transformed = []
-    for msg in messages:
-        if isinstance(msg.get('content'), list):
-            new_content = []
-            tool_calls = []
-            for item in msg['content']:
-                if isinstance(item, dict):
-                    if item['type'] == 'text':
-                        new_content.append(item['text'])
-                    elif item['type'] == 'tool_use':
-                        # 转换为 OpenAI 的 tool_calls 结构
-                        tool_calls.append({
-                            "id": item['id'],
-                            "type": "function",
-                            "function": {
-                                "name": item['name'],
-                                "arguments": json.dumps(item['input'])
-                            }
-                        })
-                    else:
-                        new_content.append(json.dumps(item))
-            # 返回 OpenAI 兼容的格式
-            res = {"role": msg['role'], "content": "\n".join(new_content)}
-            if tool_calls:
-                res["tool_calls"] = tool_calls
-            transformed.append(res)
-        else:
-            transformed.append(str(item))
-
-    return transformed
-
-
 def transform_tool_choice(tool_choice):
     """Transform tool_choice from object format to string format."""
     if tool_choice is None:
@@ -83,9 +47,7 @@ def transform_tool_choice(tool_choice):
         return tool_choice
     if isinstance(tool_choice, dict):
         choice_type = tool_choice.get('type')
-        if choice_type in ['none', 'auto', 'required']:
-            return choice_type
-        return "auto"
+        return choice_type if choice_type in ['none', 'auto', 'required'] else "auto"
     return "auto"
 
 def transform_tools(tools):
@@ -130,12 +92,6 @@ def transform_tools(tools):
                 schema['properties'] = {}
             
             function_data['parameters'] = schema
-            
-            if 'name' not in function_data:
-                function_data['name'] = 'unknown_function'
-            if 'description' not in function_data:
-                function_data['description'] = ''
-            
             new_tool['function'] = function_data
             transformed.append(new_tool)
         else:
@@ -148,21 +104,20 @@ def validate_max_tokens(data):
         return
     
     max_tokens = data.get('max_tokens')
-    
-    if max_tokens is None or max_tokens == '' or max_tokens == 0:
+    if not max_tokens or max_tokens == 0:
         data['max_tokens'] = 1024
         return
     
     try:
         max_tokens_int = int(float(max_tokens))
+        data['max_tokens'] = 1024 if max_tokens_int < 1 else max_tokens_int
     except (ValueError, TypeError):
         data['max_tokens'] = 1024
-        return
-    
-    if max_tokens_int < 1:
-        data['max_tokens'] = 1024
-    else:
-        data['max_tokens'] = max_tokens_int
+
+def filter_response_headers(headers):
+    """Filter out headers that shouldn't be forwarded."""
+    excluded = {'content-encoding', 'transfer-encoding', 'connection', 'content-length'}
+    return {k: v for k, v in headers.items() if k.lower() not in excluded}
 
 @app.route('/v1/<path:path>', methods=['GET', 'POST'])
 def proxy(path):
@@ -191,7 +146,7 @@ def proxy(path):
                         data['model'] = ORIGINAL_MODEL_ID
                 
                 if data and 'messages' in data:
-                    data['messages'] = transform_message_to_openai(data['messages'])
+                    data['messages'] = transform_messages(data['messages'])
                 if data and 'tool_choice' in data:
                     data['tool_choice'] = transform_tool_choice(data['tool_choice'])
                 if data and 'tools' in data:
@@ -231,19 +186,11 @@ def proxy(path):
                 except Exception:
                     yield b''
             
-            response_headers = {}
-            for k, v in response.headers.items():
-                if k.lower() not in ['content-encoding', 'transfer-encoding', 'connection', 'content-length']:
-                    response_headers[k] = v
-            
+            response_headers = filter_response_headers(response.headers)
             content_type = response.headers.get('Content-Type', 'text/event-stream')
             return Response(generate(), mimetype=content_type, status=response.status_code, headers=response_headers)
         
-        response_headers = {}
-        for k, v in response.headers.items():
-            if k.lower() not in ['content-encoding', 'transfer-encoding', 'connection', 'content-length']:
-                response_headers[k] = v
-        
+        response_headers = filter_response_headers(response.headers)
         if 'Content-Type' not in response_headers and response.headers.get('Content-Type'):
             response_headers['Content-Type'] = response.headers.get('Content-Type')
         
