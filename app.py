@@ -42,6 +42,31 @@ def transform_messages(messages):
         transformed.append(new_msg)
     return transformed
 
+def transform_message_to_openai(msg):
+    if isinstance(msg.get('content'), list):
+        new_content = []
+        tool_calls = []
+        for item in msg['content']:
+            if item['type'] == 'text':
+                new_content.append(item['text'])
+            elif item['type'] == 'tool_use':
+                # 转换为 OpenAI 的 tool_calls 结构
+                tool_calls.append({
+                    "id": item['id'],
+                    "type": "function",
+                    "function": {
+                        "name": item['name'],
+                        "arguments": json.dumps(item['input'])
+                    }
+                })
+        # 返回 OpenAI 兼容的格式
+        res = {"role": msg['role'], "content": "\n".join(new_content)}
+        if tool_calls:
+            res["tool_calls"] = tool_calls
+        return res
+    return msg
+
+
 def transform_tool_choice(tool_choice):
     """Transform tool_choice from object format to string format."""
     if tool_choice is None:
@@ -158,7 +183,7 @@ def proxy(path):
                         data['model'] = ORIGINAL_MODEL_ID
                 
                 if data and 'messages' in data:
-                    data['messages'] = transform_messages(data['messages'])
+                    data['messages'] = transform_message_to_openai(data['messages'])
                 if data and 'tool_choice' in data:
                     data['tool_choice'] = transform_tool_choice(data['tool_choice'])
                 if data and 'tools' in data:
