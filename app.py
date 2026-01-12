@@ -42,29 +42,37 @@ def transform_messages(messages):
         transformed.append(new_msg)
     return transformed
 
-def transform_message_to_openai(msg):
-    if isinstance(msg.get('content'), list):
-        new_content = []
-        tool_calls = []
-        for item in msg['content']:
-            if item['type'] == 'text':
-                new_content.append(item['text'])
-            elif item['type'] == 'tool_use':
-                # 转换为 OpenAI 的 tool_calls 结构
-                tool_calls.append({
-                    "id": item['id'],
-                    "type": "function",
-                    "function": {
-                        "name": item['name'],
-                        "arguments": json.dumps(item['input'])
-                    }
-                })
-        # 返回 OpenAI 兼容的格式
-        res = {"role": msg['role'], "content": "\n".join(new_content)}
-        if tool_calls:
-            res["tool_calls"] = tool_calls
-        return res
-    return msg
+def transform_message_to_openai(messages):
+    transformed = []
+    for msg in messages:
+        if isinstance(msg.get('content'), list):
+            new_content = []
+            tool_calls = []
+            for item in msg['content']:
+                if isinstance(item, dict):
+                    if item['type'] == 'text':
+                        new_content.append(item['text'])
+                    elif item['type'] == 'tool_use':
+                        # 转换为 OpenAI 的 tool_calls 结构
+                        tool_calls.append({
+                            "id": item['id'],
+                            "type": "function",
+                            "function": {
+                                "name": item['name'],
+                                "arguments": json.dumps(item['input'])
+                            }
+                        })
+                    else:
+                        new_content.append(json.dumps(item))
+            # 返回 OpenAI 兼容的格式
+            res = {"role": msg['role'], "content": "\n".join(new_content)}
+            if tool_calls:
+                res["tool_calls"] = tool_calls
+            transformed.append(res)
+        else:
+            transformed.append(str(item))
+
+    return transformed
 
 
 def transform_tool_choice(tool_choice):
